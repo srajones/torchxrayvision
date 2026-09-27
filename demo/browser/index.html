@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <title>Chest film</title>
+    <title>Film bench</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2310120f'/%3E%3Crect x='7' y='6' width='18' height='20' rx='2' fill='none' stroke='%23e0a45a' stroke-width='2'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -12,14 +12,21 @@
     <div class="banner">
       <p>
         <span class="amber">Learning tool. Not a diagnosis.</span>
-        The film stays in this browser.
+        October 2026, in this browser. Nothing is uploaded.
+      </p>
+    </div>
+    <div class="studies">
+      <button id="study-chest" class="study on" type="button" aria-pressed="true">Chest X-ray</button>
+      <button id="study-brain" class="study" type="button" aria-pressed="false">Brain MRI slice</button>
+      <p class="note-line">
+        Public weights only. A CT volume, an ultrasound cine, or a written report still needs a machine outside this tab.
       </p>
     </div>
     <header>
       <div>
-        <h1>Chest film</h1>
-        <p class="lede">
-          Drop one frontal X-ray. Eight readers trained on different collections compare notes.
+        <h1 id="title">Chest film</h1>
+        <p id="lede" class="lede">
+          Eight public readers vote separately. You see who flagged a finding and who did not.
         </p>
       </div>
       <p id="status" class="status">Starting runtime</p>
@@ -52,7 +59,7 @@
           <p id="empty" class="empty">The first reader is loading. You can drop a film now.</p>
           <ul id="findings" hidden></ul>
         </div>
-        <p class="foot">
+        <p class="foot" id="foot">
           The mark in each bar is the usual cutoff. Past it is a flag from that reader, not a
           probability and not a diagnosis. Open a row to see who agreed.
         </p>

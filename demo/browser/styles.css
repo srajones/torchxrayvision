@@ -31,6 +31,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--surface);
 }
 
+.studies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 72rem;
+  margin: 1rem auto 0;
+  padding: 0 1rem;
+}
+
+.study {
+  height: 2.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: transparent;
+  padding: 0 1rem;
+  color: var(--muted);
+}
+
+.study.on {
+  border-color: transparent;
+  background: var(--amber);
+  color: var(--ink);
+  font-weight: 500;
+}
+
 .banner p,
 header,
 main {

@@ -73,6 +73,9 @@ for name in $files; do
   fetch "$MODELS/$name" "$RELEASE/$name"
 done
 
+fetch "$MODELS/brain-mri-slice.onnx" \
+  "https://raw.githubusercontent.com/Repetto-A/BrainTumorAI-Web/main/public/model/brain_tumor_model.onnx"
+
 fetch "$VENDOR/ort.wasm.min.mjs" "$CDN/onnxruntime-web@${ORT_VERSION}/dist/ort.wasm.min.mjs"
 fetch "$VENDOR/ort-wasm-simd-threaded.mjs" "$CDN/onnxruntime-web@${ORT_VERSION}/dist/ort-wasm-simd-threaded.mjs"
 fetch "$VENDOR/ort-wasm-simd-threaded.wasm" "$CDN/onnxruntime-web@${ORT_VERSION}/dist/ort-wasm-simd-threaded.wasm"

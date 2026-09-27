@@ -21,6 +21,12 @@ const CANONICAL = [
 
 const LITTLE_ENDIAN = new Set(["1.2.840.10008.1.2", "1.2.840.10008.1.2.1"]);
 
+const BRAIN_LABELS = ["Glioma", "Meningioma", "Pituitary", "No tumor"];
+const title = document.querySelector("#title");
+const lede = document.querySelector("#lede");
+const foot = document.querySelector("#foot");
+const studyChest = document.querySelector("#study-chest");
+const studyBrain = document.querySelector("#study-brain");
 const drop = document.querySelector("#drop");
 const fileInput = document.querySelector("#file");
 const choose = document.querySelector("#choose");
@@ -52,6 +58,11 @@ let highlight = null;
 let classMap = null;
 let scoring = false;
 let runId = 0;
+let study = "chest";
+let brainSession = null;
+let brainState = "wait";
+let brainScores = null;
+let brainBusy = false;
 let ort = null;
 
 function showError(message) {
@@ -197,6 +208,61 @@ function prepareInput(active, resolution) {
   return resizeBilinear(cropped.data, cropped.size, resolution);
 }
 
+function softmax(values) {
+  let max = -Infinity;
+  for (let i = 0; i < values.length; i++) if (values[i] > max) max = values[i];
+  const out = [];
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    const value = Math.exp(values[i] - max);
+    out.push(value);
+    sum += value;
+  }
+  return out.map((value) => value / (sum || 1));
+}
+
+function prepareBrain(active) {
+  const gray = new Float32Array(active.pixels.length);
+  for (let i = 0; i < gray.length; i++) {
+    const unit = ((active.pixels[i] / 1024 + 1) / 2);
+    gray[i] = Math.max(0, Math.min(255, unit * 255));
+  }
+  const dest = 128;
+  const small = new Float32Array(dest * dest);
+  const scaleX = active.width / dest;
+  const scaleY = active.height / dest;
+  for (let y = 0; y < dest; y++) {
+    const fy = (y + 0.5) * scaleY - 0.5;
+    const y0 = Math.floor(fy);
+    const wy = fy - y0;
+    const cy0 = clamp(y0, 0, active.height - 1);
+    const cy1 = clamp(y0 + 1, 0, active.height - 1);
+    for (let x = 0; x < dest; x++) {
+      const fx = (x + 0.5) * scaleX - 0.5;
+      const x0 = Math.floor(fx);
+      const wx = fx - x0;
+      const cx0 = clamp(x0, 0, active.width - 1);
+      const cx1 = clamp(x0 + 1, 0, active.width - 1);
+      const v00 = gray[cy0 * active.width + cx0];
+      const v01 = gray[cy0 * active.width + cx1];
+      const v10 = gray[cy1 * active.width + cx0];
+      const v11 = gray[cy1 * active.width + cx1];
+      const top = v00 * (1 - wx) + v01 * wx;
+      const bottom = v10 * (1 - wx) + v11 * wx;
+      small[y * dest + x] = top * (1 - wy) + bottom * wy;
+    }
+  }
+  const plane = dest * dest;
+  const out = new Float32Array(3 * plane);
+  for (let i = 0; i < plane; i++) {
+    const value = ((small[i] / 255 - 0.5) / 0.5);
+    out[i] = value;
+    out[plane + i] = value;
+    out[plane * 2 + i] = value;
+  }
+  return out;
+}
+
 function looksLikeDicom(buffer, name) {
   const lower = name.toLowerCase();
   if (lower.endsWith(".dcm") || lower.endsWith(".dicom")) return true;
@@ -319,6 +385,18 @@ async function decodeFilm(file) {
 }
 
 function renderStatus() {
+  if (study === "brain") {
+    status.textContent = brainBusy
+      ? "Reading the slice"
+      : brainState === "ready"
+        ? "MRI reader ready"
+        : brainState === "loading"
+          ? "Starting the MRI reader"
+          : brainState === "error"
+            ? "MRI reader failed"
+            : "Open this to load it";
+    return;
+  }
   const ready = [...loadState.values()].filter((state) => state === "ready").length;
   const total = models.length;
   status.textContent =
@@ -327,6 +405,13 @@ function renderStatus() {
 
 function renderChips() {
   chips.replaceChildren();
+  if (study === "brain") {
+    const chip = document.createElement("span");
+    chip.className = `chip ${brainState === "ready" ? "ready" : brainState === "error" ? "error" : ""}`;
+    chip.textContent = "MRI slice reader" + (brainState === "loading" || brainBusy ? "…" : brainState === "error" ? " ×" : "");
+    chips.append(chip);
+    return;
+  }
   for (const model of models) {
     const state = loadState.get(model.id) || "wait";
     const chip = document.createElement("span");
@@ -349,14 +434,30 @@ function renderFilm() {
     const kind = film.kind === "dicom" ? "DICOM" : "Image";
     meta.textContent = `${kind} · ${film.width}×${film.height}`;
   }
+  prompt.textContent = study === "chest" ? "Drop a chest X-ray here" : "Drop one MRI slice here";
   choose.textContent = hasFilm ? "Replace" : "Choose image";
-  mapToggle.hidden = !classMap;
+  mapToggle.hidden = study !== "chest" || !classMap;
   mapToggle.textContent = showMap ? "Hide highlight" : "Show highlight";
   const label = highlight ? labelText(highlight) : "";
-  mapNote.hidden = !(hasFilm && showMap && classMap && label);
+  mapNote.hidden = !(study === "chest" && hasFilm && showMap && classMap && label);
   mapNote.textContent = label
     ? `Where All datasets looked for ${label}. Bright means attention, not a traced lesion.`
     : "";
+  if (title) title.textContent = study === "chest" ? "Chest film" : "One MRI slice";
+  if (lede) {
+    lede.textContent = study === "chest"
+      ? "Eight public readers vote separately. You see who flagged a finding and who did not."
+      : "One classifier, four labels, one cropped slice. It has not seen a full MRI study.";
+  }
+  if (foot) {
+    foot.textContent = study === "chest"
+      ? "Two yeses do not outvote five nos. Each reader flags on its own cutoff. The average has to pass the middle mark to be called. A reader missing from the list was not trained on that finding, so it does not vote."
+      : "October 2026: a browser can name one of four labels on a single public-dataset slice. It cannot read a stack, measure a tumor, or write the report.";
+  }
+  studyChest.classList.toggle("on", study === "chest");
+  studyBrain.classList.toggle("on", study === "brain");
+  studyChest.setAttribute("aria-pressed", study === "chest" ? "true" : "false");
+  studyBrain.setAttribute("aria-pressed", study === "brain" ? "true" : "false");
   paintMap();
 }
 
@@ -428,6 +529,10 @@ function appendFinding(list, finding) {
 }
 
 function renderFindings() {
+  if (study === "brain") {
+    renderBrain();
+    return;
+  }
   const ready = [...loadState.values()].filter((state) => state === "ready").length;
   if (findings == null) {
     findingsList.hidden = true;
@@ -511,8 +616,69 @@ function render() {
   renderFindings();
 }
 
+function renderBrain() {
+  findingsList.replaceChildren();
+  if (brainState === "error") {
+    findingsList.hidden = true;
+    empty.hidden = false;
+    empty.textContent = "The MRI reader did not start.";
+    return;
+  }
+  if (!film) {
+    findingsList.hidden = true;
+    empty.hidden = false;
+    empty.textContent = "Drop one slice. This model only knows glioma, meningioma, pituitary, or none.";
+    return;
+  }
+  if (!brainScores) {
+    findingsList.hidden = true;
+    empty.hidden = false;
+    empty.textContent = brainState === "loading" || brainBusy ? "Starting the MRI reader." : "Waiting for the slice.";
+    return;
+  }
+  empty.hidden = true;
+  findingsList.hidden = false;
+  const rows = BRAIN_LABELS.map((label, index) => ({ label, score: brainScores[index] || 0 }))
+    .sort((a, b) => b.score - a.score);
+  const lead = document.createElement("li");
+  lead.className = "summary";
+  const kicker = document.createElement("p");
+  kicker.className = "eyebrow";
+  kicker.textContent = "Largest share";
+  const name = document.createElement("p");
+  name.className = "headline";
+  name.textContent = rows[0].label;
+  const detail = document.createElement("p");
+  detail.className = "detail";
+  detail.textContent = `${Math.round(rows[0].score * 100)}% of this model's score. The other three labels share the rest. That share is not a chance of disease.`;
+  lead.append(kicker, name, detail);
+  findingsList.append(lead);
+  for (const row of rows) {
+    const item = document.createElement("li");
+    item.className = "row";
+    const top = document.createElement("span");
+    top.className = "top";
+    const label = document.createElement("span");
+    label.textContent = row.label;
+    const pct = document.createElement("span");
+    pct.className = "agree";
+    pct.textContent = `${Math.round(row.score * 100)}%`;
+    top.append(label, pct);
+    const meter = document.createElement("span");
+    meter.className = "meter";
+    const track = document.createElement("span");
+    track.className = "track";
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.max(0, Math.min(100, row.score * 100))}%`;
+    track.append(fill);
+    meter.append(track);
+    item.append(top, meter);
+    findingsList.append(item);
+  }
+}
+
 async function score() {
-  if (!film || !ort || sessions.size === 0) return;
+  if (study !== "chest" || !film || !ort || sessions.size === 0) return;
   const active = film;
   const token = ++runId;
   scoring = true;
@@ -565,8 +731,10 @@ async function takeFile(file) {
     showQuiet = false;
     highlight = null;
     classMap = null;
+    brainScores = null;
     render();
-    void score();
+    if (study === "brain") void scoreBrain();
+    else void score();
   } catch (error) {
     showError(error instanceof Error ? error.message : "Could not read that file.");
   }
@@ -608,8 +776,55 @@ async function loadOne(model) {
   specs.set(model.id, model);
   loadState.set(model.id, "ready");
   render();
-  if (film) void score();
+  if (film && study === "chest") void score();
 }
+
+async function ensureBrain() {
+  if (brainSession || brainState === "loading") return;
+  brainState = "loading";
+  render();
+  try {
+    const url = new URL("./models/brain-mri-slice.onnx", window.location.href).href;
+    brainSession = await ort.InferenceSession.create(url, { executionProviders: ["wasm"] });
+    brainState = "ready";
+  } catch (error) {
+    brainState = "error";
+    showError(error instanceof Error ? error.message : "The MRI reader failed to load.");
+  }
+  render();
+}
+
+async function scoreBrain() {
+  if (study !== "brain" || !film || !brainSession || !ort) return;
+  const active = film;
+  brainBusy = true;
+  renderStatus();
+  try {
+    const input = prepareBrain(active);
+    const tensor = new ort.Tensor("float32", input, [1, 3, 128, 128]);
+    const output = await brainSession.run({ input: tensor });
+    const data = output.output?.data ?? Object.values(output)[0]?.data;
+    if (!data) throw new Error("The MRI reader returned nothing.");
+    if (active !== film) return;
+    brainScores = softmax(Array.from(data));
+  } catch (error) {
+    showError(error instanceof Error ? error.message : "The MRI reader failed.");
+  } finally {
+    brainBusy = false;
+    render();
+  }
+}
+
+function setStudy(next) {
+  study = next;
+  render();
+  if (next === "brain") {
+    void ensureBrain().then(() => scoreBrain());
+  }
+}
+
+studyChest.addEventListener("click", () => setStudy("chest"));
+studyBrain.addEventListener("click", () => setStudy("brain"));
 
 async function boot() {
   try {
@@ -634,6 +849,11 @@ async function boot() {
 
 function paintMap() {
   if (!mapCanvas || !preview) return;
+  if (study !== "chest") {
+    const ctx = mapCanvas.getContext("2d");
+    ctx?.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+    return;
+  }
   const boxW = preview.clientWidth;
   const boxH = preview.clientHeight;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);

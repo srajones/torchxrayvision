@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Film bench</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2310120f'/%3E%3Crect x='7' y='6' width='18' height='20' rx='2' fill='none' stroke='%23e0a45a' stroke-width='2'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="banner">
+      <p>
+        <span class="amber">Not for clinical use.</span>
+        Educational scores from TorchXRayVision, run in this tab with WebAssembly. 0.5 is that
+        network's operating point, not a probability of disease.
+      </p>
+    </div>
+    <header>
+      <div>
+        <p class="eyebrow">Local only</p>
+        <h1>Film bench</h1>
+        <p class="lede">
+          One frontal chest radiograph, eight networks. The joint model and the NIH, PadChest,
+          CheXpert, MIMIC, and RSNA checkpoints vote together.
+        </p>
+      </div>
+      <p id="status" class="status">Starting runtime</p>
+    </header>
+    <main>
+      <section class="film">
+        <div id="drop" class="drop" role="button" tabindex="0" aria-label="Drop a radiograph">
+          <p id="prompt" class="prompt">Drop a PNG, JPG, or uncompressed DICOM</p>
+          <p id="hint" class="hint">The file stays in this browser.</p>
+          <img id="preview" alt="Selected radiograph" hidden />
+        </div>
+        <input id="file" type="file" accept="image/png,image/jpeg,.dcm,.dicom,application/dicom" hidden />
+        <div class="filebar">
+          <span id="filename">No film loaded</span>
+          <button id="choose" type="button">Choose file</button>
+        </div>
+        <p id="meta" class="meta" hidden></p>
+        <p id="error" class="error" hidden></p>
+      </section>
+      <section class="board">
+        <div id="chips" class="chips"></div>
+        <div id="results" class="results">
+          <p id="empty" class="empty">Loading the joint network into WebAssembly. The other seven follow.</p>
+          <ul id="findings" hidden></ul>
+        </div>
+        <p class="foot">
+          Mean is across networks that were actually trained on that finding. Race, age, and sex
+          models are left out. Anatomy segmentation uses a different input and is not in this set.
+        </p>
+      </section>
+    </main>
+    <script src="./vendor/dicomParser.min.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

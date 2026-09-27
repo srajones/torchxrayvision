@@ -63,39 +63,63 @@ let brainSession = null;
 let brainState = "wait";
 let brainScores = null;
 let brainBusy = false;
-const MODEL_CACHE = "film-bench-models-v1";
+const MODEL_DB = "film-bench";
+const MODEL_STORE = "models";
 let downloading = 0;
+
+function openModelDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(MODEL_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(MODEL_STORE)) {
+        request.result.createObjectStore(MODEL_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readSaved(key) {
+  try {
+    const db = await openModelDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(MODEL_STORE, "readonly");
+      const request = tx.objectStore(MODEL_STORE).get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function writeSaved(key, bytes) {
+  try {
+    const db = await openModelDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(MODEL_STORE, "readwrite");
+      tx.objectStore(MODEL_STORE).put(bytes, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // This visit can still use the bytes.
+  }
+}
 
 async function loadModel(url) {
   const absolute = new URL(url, window.location.href).href;
-  if ("caches" in globalThis) {
-    try {
-      const cache = await caches.open(MODEL_CACHE);
-      const saved = await cache.match(absolute);
-      if (saved) return saved.arrayBuffer();
-      downloading += 1;
-      renderStatus();
-      const response = await fetch(absolute);
-      if (!response.ok) throw new Error("Could not download a reader.");
-      try {
-        await cache.put(absolute, response.clone());
-      } catch {
-        // The session can still start from the bytes we already have.
-      }
-      const bytes = await response.arrayBuffer();
-      downloading = Math.max(0, downloading - 1);
-      return bytes;
-    } catch (error) {
-      downloading = Math.max(0, downloading - 1);
-      if (error instanceof Error && error.message === "Could not download a reader.") throw error;
-    }
-  }
+  const stored = await readSaved(absolute);
+  if (stored) return stored;
   downloading += 1;
   renderStatus();
   try {
     const response = await fetch(absolute);
     if (!response.ok) throw new Error("Could not download a reader.");
-    return response.arrayBuffer();
+    const bytes = await response.arrayBuffer();
+    await writeSaved(absolute, bytes);
+    return bytes;
   } finally {
     downloading = Math.max(0, downloading - 1);
   }

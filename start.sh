@@ -96,6 +96,12 @@ class ThreadedServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
 class Handler(SimpleHTTPRequestHandler):
     def list_directory(self, path):
         self.send_error(404, "Not found")

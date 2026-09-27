@@ -5,7 +5,7 @@
   "models": [
     {
       "id": "densenet121-res224-all",
-      "file": "densenet121-res224-all.onnx",
+      "file": "densenet121-res224-all-map.onnx",
       "title": "All cohorts",
       "family": "DenseNet-121",
       "role": "primary",
@@ -50,7 +50,8 @@
         0.20204692,
         0.05015312
       ],
-      "description": "This model was trained on the datasets: nih-pc-chex-mimic_ch-google-openi-rsna and is described here: https://arxiv.org/abs/2002.02497"
+      "description": "This model was trained on the datasets: nih-pc-chex-mimic_ch-google-openi-rsna and is described here: https://arxiv.org/abs/2002.02497",
+      "map": true
     },
     {
       "id": "densenet121-res224-nih",

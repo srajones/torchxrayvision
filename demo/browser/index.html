@@ -29,14 +29,21 @@
         <div id="drop" class="drop" role="button" tabindex="0" aria-label="Drop a radiograph">
           <p id="prompt" class="prompt">Drop a chest X-ray here</p>
           <p id="hint" class="hint">PNG, JPG, or uncompressed DICOM</p>
-          <img id="preview" alt="Selected radiograph" hidden />
+          <div id="stage" class="stage" hidden>
+            <img id="preview" alt="Selected radiograph" />
+            <canvas id="map" class="map"></canvas>
+          </div>
         </div>
         <input id="file" type="file" accept="image/png,image/jpeg,.dcm,.dicom,application/dicom" hidden />
         <div class="filebar">
           <span id="filename">No film yet</span>
-          <button id="choose" type="button">Choose image</button>
+          <span class="actions">
+            <button id="map-toggle" class="ghost" type="button" hidden>Hide highlight</button>
+            <button id="choose" type="button">Choose image</button>
+          </span>
         </div>
         <p id="meta" class="meta" hidden></p>
+        <p id="map-note" class="note-line" hidden></p>
         <p id="error" class="error" hidden></p>
       </section>
       <section class="board">

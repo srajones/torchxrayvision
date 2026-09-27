@@ -39,16 +39,22 @@ CLASSIFIERS = [
 
 
 class DenseNetLogits(nn.Module):
-    def __init__(self, model):
+    def __init__(self, model, with_map=False):
         super().__init__()
         self.features = model.features
         self.classifier = model.classifier
+        self.with_map = with_map
 
     def forward(self, x):
-        features = self.features(x)
-        features = F.relu(features)
+        features = F.relu(self.features(x))
         pooled = F.adaptive_avg_pool2d(features, (1, 1)).flatten(1)
-        return self.classifier(pooled)
+        logits = self.classifier(pooled)
+        if not self.with_map:
+            return logits
+        # Class activation map: classifier weights over the last conv maps.
+        weight = self.classifier.weight
+        cam = torch.einsum("kc,nchw->nkhw", weight, features)
+        return logits, F.relu(cam)
 
 
 class ResNetLogits(nn.Module):
@@ -83,11 +89,11 @@ def metadata_for(weights, title, family, role):
     }
 
 
-def wrap(weights):
+def wrap(weights, with_map=False):
     if weights.startswith("densenet"):
         model = xrv.models.DenseNet(weights=weights)
         model.eval()
-        return model, DenseNetLogits(model).eval()
+        return model, DenseNetLogits(model, with_map=with_map).eval()
     if weights.startswith("resnet"):
         model = xrv.models.ResNet(weights=weights)
         model.eval()
@@ -95,7 +101,7 @@ def wrap(weights):
     raise SystemExit("Unsupported weights: " + weights)
 
 
-def check(model, wrapper, onnx_path, resolution):
+def check(model, wrapper, onnx_path, resolution, with_map):
     import numpy as np
     import onnxruntime as ort
 
@@ -104,41 +110,54 @@ def check(model, wrapper, onnx_path, resolution):
     sample = sample / sample.abs().max() * 800
 
     with torch.no_grad():
-        expected = wrapper(sample).numpy()
+        expected = wrapper(sample)
+        expected_logits = expected[0].numpy() if with_map else expected.numpy()
 
     session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
-    actual = session.run(None, {"input": sample.numpy()})[0]
-    if not np.allclose(expected, actual, rtol=1e-3, atol=1e-3):
+    actual = session.run(None, {"input": sample.numpy()})
+    if not np.allclose(expected_logits, actual[0], rtol=1e-3, atol=1e-3):
         raise SystemExit(
             "ONNX logits do not match PyTorch for %s. max abs diff %s"
-            % (onnx_path, np.max(np.abs(expected - actual)))
+            % (onnx_path, np.max(np.abs(expected_logits - actual[0])))
         )
+    if with_map:
+        expected_cam = expected[1].numpy()
+        if not np.allclose(expected_cam, actual[1], rtol=1e-3, atol=1e-3):
+            raise SystemExit(
+                "ONNX map does not match PyTorch for %s. max abs diff %s"
+                % (onnx_path, np.max(np.abs(expected_cam - actual[1])))
+            )
 
     with torch.no_grad():
         full = model(sample)
-        renorm = xrv.models.op_norm(torch.sigmoid(wrapper(sample)), model.op_threshs)
+        logits = expected[0] if with_map else expected
+        renorm = xrv.models.op_norm(torch.sigmoid(logits), model.op_threshs)
     if not torch.allclose(full, renorm, rtol=1e-4, atol=1e-4, equal_nan=True):
         raise SystemExit("op_norm contract drifted for " + onnx_path)
     print("parity ok", os.path.basename(onnx_path))
 
 
-def export_one(weights, title, family, role, out_dir):
-    model, wrapper = wrap(weights)
+def export_one(weights, title, family, role, out_dir, with_map=False):
+    model, wrapper = wrap(weights, with_map=with_map)
     spec = metadata_for(weights, title, family, role)
+    if with_map:
+        spec["file"] = weights + "-map.onnx"
+        spec["map"] = True
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, spec["file"])
     resolution = spec["resolution"]
     dummy = torch.zeros(1, 1, resolution, resolution)
+    output_names = ["logits", "cam"] if with_map else ["logits"]
     torch.onnx.export(
         wrapper,
         dummy,
         out_path,
         input_names=["input"],
-        output_names=["logits"],
+        output_names=output_names,
         opset_version=17,
         dynamo=False,
     )
-    check(model, wrapper, out_path, resolution)
+    check(model, wrapper, out_path, resolution, with_map)
     return spec
 
 
@@ -148,6 +167,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weights", default="densenet121-res224-all")
     parser.add_argument("--all", action="store_true")
+    parser.add_argument("--map", action="store_true", help="Also export a class activation map (DenseNet only).")
     parser.add_argument("--out-dir", default=default_dir)
     args = parser.parse_args()
     out_dir = os.path.abspath(args.out_dir)
@@ -159,7 +179,16 @@ def main():
     registry = []
     for weights, title, family, role in chosen:
         print("exporting", weights)
-        registry.append(export_one(weights, title, family, role, out_dir))
+        registry.append(
+            export_one(
+                weights,
+                title,
+                family,
+                role,
+                out_dir,
+                with_map=weights == "densenet121-res224-all" or (args.map and weights.startswith("densenet")),
+            )
+        )
 
     if args.all or len(chosen) > 1:
         path = os.path.join(out_dir, "registry.json")

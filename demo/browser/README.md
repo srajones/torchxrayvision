@@ -14,13 +14,13 @@ The page keeps the image in the tab. Drop a PNG, JPG, or uncompressed little-end
 
 ## What the page computes
 
-Each graph returns **logits**. The page applies sigmoid, then `op_norm`, so 0.5 is that head's operating point and not a probability. Heads with an empty label or a null threshold were not trained and are ignored. The list is the mean across trained heads, plus how many sit at or above 0.5.
+Each graph returns **logits**. The page applies sigmoid, then `op_norm`, so 0.5 is that head's operating point and not a probability. Heads with an empty label or a null threshold were not trained and are ignored. The list is the mean across trained heads, plus how many sit at or above 0.5. Click a finding to paint where the All datasets DenseNet looked on the center crop it actually scored. That bright area is a class activation map, not a traced lesion. The other seven readers vote but do not draw.
 
 Input is `1x1xHxW`, already scaled to about [-1024, 1024], center-cropped, then resized with PyTorch bilinear (`align_corners=False`). That matches `xrv.utils.load_image`: 8-bit images use the first channel and maxval 255; uncompressed DICOM uses `2**BitsStored-1`, and MONOCHROME1 is inverted. No VOI LUT and no rescale slope.
 
 Networks:
 
-- DenseNet-121 at 224: `all`, NIH, PadChest, CheXpert, MIMIC-NB, MIMIC-CH, RSNA
+- DenseNet-121 at 224: `all` (also writes a class activation map as `densenet121-res224-all-map.onnx`), NIH, PadChest, CheXpert, MIMIC-NB, MIMIC-CH, RSNA
 - ResNet-50 at 512: `resnet50-res512-all`
 
 Race, age, and sex models are not in this bench. WebAssembly runs single-threaded so the page does not need cross-origin isolation.

@@ -124,7 +124,11 @@ class Handler(SimpleHTTPRequestHandler):
         return guessed or "application/octet-stream"
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-cache")
+        path = self.path.split("?", 1)[0].lower()
+        if path.endswith(".onnx") or path.endswith(".wasm"):
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
     def log_message(self, fmt, *args):

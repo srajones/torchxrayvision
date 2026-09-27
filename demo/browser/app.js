@@ -25,6 +25,10 @@ const drop = document.querySelector("#drop");
 const fileInput = document.querySelector("#file");
 const choose = document.querySelector("#choose");
 const preview = document.querySelector("#preview");
+const stage = document.querySelector("#stage");
+const mapCanvas = document.querySelector("#map");
+const mapToggle = document.querySelector("#map-toggle");
+const mapNote = document.querySelector("#map-note");
 const prompt = document.querySelector("#prompt");
 const hint = document.querySelector("#hint");
 const filename = document.querySelector("#filename");
@@ -43,6 +47,9 @@ let film = null;
 let findings = null;
 let openLabel = null;
 let showQuiet = false;
+let showMap = true;
+let highlight = null;
+let classMap = null;
 let scoring = false;
 let runId = 0;
 let ort = null;
@@ -335,6 +342,7 @@ function renderFilm() {
   prompt.hidden = hasFilm;
   hint.hidden = hasFilm;
   preview.hidden = !hasFilm;
+  stage.hidden = !hasFilm;
   if (hasFilm) preview.src = film.previewUrl;
   meta.hidden = !hasFilm;
   if (hasFilm) {
@@ -342,6 +350,14 @@ function renderFilm() {
     meta.textContent = `${kind} · ${film.width}×${film.height}`;
   }
   choose.textContent = hasFilm ? "Replace" : "Choose image";
+  mapToggle.hidden = !classMap;
+  mapToggle.textContent = showMap ? "Hide highlight" : "Show highlight";
+  const label = highlight ? labelText(highlight) : "";
+  mapNote.hidden = !(hasFilm && showMap && classMap && label);
+  mapNote.textContent = label
+    ? `Where All datasets looked for ${label}. Bright means attention, not a traced lesion.`
+    : "";
+  paintMap();
 }
 
 function appendFinding(list, finding) {
@@ -354,7 +370,7 @@ function appendFinding(list, finding) {
   const top = document.createElement("span");
   top.className = "row-top";
   const name = document.createElement("span");
-  name.className = "name";
+  name.className = highlight === finding.label ? "name on" : "name";
   name.textContent = labelText(finding.label);
   const agree = document.createElement("span");
   agree.className = "agree";
@@ -379,7 +395,9 @@ function appendFinding(list, finding) {
   button.append(top, meter);
   button.addEventListener("click", () => {
     openLabel = open ? null : finding.label;
+    highlight = finding.label;
     renderFindings();
+    paintMap();
   });
   item.append(button);
   if (open) {
@@ -515,9 +533,15 @@ async function score() {
       const logits = output.logits?.data ?? Object.values(output)[0]?.data;
       if (!logits) throw new Error(`${model.title} returned no scores.`);
       perModel.push({ model, logits });
+      if (model.map && output.cam?.dims) {
+        classMap = { side: output.cam.dims[2], values: output.cam.data };
+      }
     }
     if (token !== runId || active !== film) return;
     findings = findingsFromModels(perModel);
+    if (!highlight || !findings.some((finding) => finding.label === highlight)) {
+      highlight = findings[0]?.label ?? null;
+    }
   } catch (error) {
     if (token === runId) showError(error instanceof Error ? error.message : "Scoring failed.");
   } finally {
@@ -539,6 +563,8 @@ async function takeFile(file) {
     findings = null;
     openLabel = null;
     showQuiet = false;
+    highlight = null;
+    classMap = null;
     render();
     void score();
   } catch (error) {
@@ -605,6 +631,84 @@ async function boot() {
     render();
   }
 }
+
+function paintMap() {
+  if (!mapCanvas || !preview) return;
+  const boxW = preview.clientWidth;
+  const boxH = preview.clientHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(boxW * dpr));
+  const height = Math.max(1, Math.round(boxH * dpr));
+  if (mapCanvas.width !== width || mapCanvas.height !== height) {
+    mapCanvas.width = width;
+    mapCanvas.height = height;
+  }
+  const ctx = mapCanvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, width, height);
+  if (!film || !showMap || !classMap || !highlight || boxW < 2 || boxH < 2) return;
+  const index = CANONICAL.indexOf(highlight);
+  if (index < 0) return;
+  const side = classMap.side;
+  const cells = side * side;
+  const channel = classMap.values.subarray(index * cells, (index + 1) * cells);
+  let max = 0;
+  for (let i = 0; i < channel.length; i++) if (channel[i] > max) max = channel[i];
+  if (max < 1e-6) return;
+  const scaleFit = Math.min(width / film.width, height / film.height);
+  const viewW = film.width * scaleFit;
+  const viewH = film.height * scaleFit;
+  const viewX = (width - viewW) / 2;
+  const viewY = (height - viewH) / 2;
+  const crop = Math.min(film.width, film.height);
+  const startX = Math.floor(film.width / 2) - Math.floor(crop / 2);
+  const startY = Math.floor(film.height / 2) - Math.floor(crop / 2);
+  const grid = 64;
+  const off = document.createElement("canvas");
+  off.width = grid;
+  off.height = grid;
+  const offCtx = off.getContext("2d");
+  const image = offCtx.createImageData(grid, grid);
+  const pixels = image.data;
+  for (let y = 0; y < grid; y++) {
+    const gy = ((y + 0.5) / grid) * side - 0.5;
+    const y0 = Math.max(0, Math.min(side - 1, Math.floor(gy)));
+    const y1 = Math.max(0, Math.min(side - 1, y0 + 1));
+    const wy = gy - Math.floor(gy);
+    for (let x = 0; x < grid; x++) {
+      const gx = ((x + 0.5) / grid) * side - 0.5;
+      const x0 = Math.max(0, Math.min(side - 1, Math.floor(gx)));
+      const x1 = Math.max(0, Math.min(side - 1, x0 + 1));
+      const wx = gx - Math.floor(gx);
+      const value =
+        ((channel[y0 * side + x0] * (1 - wx) + channel[y0 * side + x1] * wx) * (1 - wy) +
+          (channel[y1 * side + x0] * (1 - wx) + channel[y1 * side + x1] * wx) * wy) /
+        max;
+      const alpha = value <= 0.35 ? 0 : ((value - 0.35) / 0.65) * 0.72;
+      const offset = (y * grid + x) * 4;
+      pixels[offset] = 224;
+      pixels[offset + 1] = 164;
+      pixels[offset + 2] = 90;
+      pixels[offset + 3] = Math.round(alpha * 255);
+    }
+  }
+  offCtx.putImageData(image, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(
+    off,
+    viewX + startX * scaleFit,
+    viewY + startY * scaleFit,
+    crop * scaleFit,
+    crop * scaleFit,
+  );
+}
+
+mapToggle.addEventListener("click", () => {
+  showMap = !showMap;
+  render();
+});
+preview.addEventListener("load", paintMap);
+new ResizeObserver(paintMap).observe(preview);
 
 render();
 void boot();

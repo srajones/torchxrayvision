@@ -33,7 +33,7 @@ On a Mac, or anywhere with `curl` and `python3`:
 ./start.sh
 ```
 
-That downloads the eight core ONNX classifiers from the [`edu-bench-v1` release](https://github.com/srajones/torchxrayvision/releases/tag/edu-bench-v1) into `demo/browser/models/` (skipped when the file is already there), downloads ONNX Runtime WebAssembly and a DICOM reader into `demo/browser/vendor/`, and opens the bench at <http://127.0.0.1:8080>. Use `PORT=8765 ./start.sh` if 8080 is taken. The film never leaves the browser. Not for clinical use.
+That downloads the eight core ONNX classifiers from the [`edu-bench-v1` release](https://github.com/srajones/torchxrayvision/releases/tag/edu-bench-v1) into `demo/browser/models/` (skipped when the file is already there), downloads ONNX Runtime WebAssembly and a DICOM reader into `demo/browser/vendor/`, and opens the bench at <http://127.0.0.1:8080>. Use `PORT=8765 ./start.sh` if 8080 is taken. Click a finding to see where the All datasets reader looked. The bright area is attention, not a traced lesion. The film never leaves the browser. Not for clinical use.
 
 Each graph returns logits. The page applies sigmoid and `op_norm`, so 0.5 is that head's operating point and not a probability. Heads with a null threshold were not trained and are ignored. To export the graphs yourself instead of downloading the release, see [demo/browser/README.md](demo/browser/README.md).
 

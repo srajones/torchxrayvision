@@ -8,3 +8,4 @@ __pycache__
 build
 dist
 .python-version
+demo/browser/models/*.onnx

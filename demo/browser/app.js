@@ -42,6 +42,7 @@ let models = [];
 let film = null;
 let findings = null;
 let openLabel = null;
+let showQuiet = false;
 let scoring = false;
 let runId = 0;
 let ort = null;
@@ -56,8 +57,31 @@ function showError(message) {
   errorBox.textContent = message;
 }
 
+const READER_NAME = {
+  "All cohorts": "All datasets",
+  NIH: "NIH",
+  PadChest: "PadChest",
+  CheXpert: "CheXpert",
+  "MIMIC-NB": "MIMIC notes",
+  "MIMIC-CH": "MIMIC report",
+  RSNA: "RSNA",
+  "ResNet 512": "Larger image",
+};
+
+function readerName(title) {
+  return READER_NAME[title] || title;
+}
+
 function labelText(label) {
   return label.replaceAll("_", " ");
+}
+
+function cleared(finding) {
+  return finding.mean >= 0.5;
+}
+
+function splitVote(finding) {
+  return !cleared(finding) && finding.over * 2 > finding.votes.length;
 }
 
 function formatScore(value) {
@@ -290,8 +314,8 @@ async function decodeFilm(file) {
 function renderStatus() {
   const ready = [...loadState.values()].filter((state) => state === "ready").length;
   const total = models.length;
-  const base = total === 0 ? "Starting runtime" : `${ready} of ${total} networks in the tab`;
-  status.textContent = scoring ? `${base} · scoring` : base;
+  status.textContent =
+    total === 0 ? "Getting readers ready" : scoring ? "Comparing readers" : `${ready} of ${total} readers ready`;
 }
 
 function renderChips() {
@@ -301,7 +325,7 @@ function renderChips() {
     const chip = document.createElement("span");
     chip.className = `chip ${state === "ready" || state === "error" ? state : ""}`;
     const mark = state === "loading" ? "…" : state === "error" ? " ×" : "";
-    chip.textContent = model.title + mark;
+    chip.textContent = readerName(model.title) + mark;
     chips.append(chip);
   }
 }
@@ -315,9 +339,74 @@ function renderFilm() {
   meta.hidden = !hasFilm;
   if (hasFilm) {
     const kind = film.kind === "dicom" ? "DICOM" : "Image";
-    const windowNote = film.kind === "dicom" ? " · preview window is for viewing only" : "";
-    meta.textContent = `${kind} · ${film.width}×${film.height}${windowNote}`;
+    meta.textContent = `${kind} · ${film.width}×${film.height}`;
   }
+  choose.textContent = hasFilm ? "Replace" : "Choose image";
+}
+
+function appendFinding(list, finding) {
+  const item = document.createElement("li");
+  item.className = "row";
+  const open = openLabel === finding.label;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+  const top = document.createElement("span");
+  top.className = "row-top";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = labelText(finding.label);
+  const agree = document.createElement("span");
+  agree.className = "agree";
+  agree.textContent = `${finding.over} of ${finding.votes.length}`;
+  const chev = document.createElement("span");
+  chev.className = "chev";
+  chev.textContent = open ? "▾" : "▸";
+  top.append(name, agree, chev);
+  const meter = document.createElement("span");
+  meter.className = "meter";
+  const track = document.createElement("span");
+  track.className = "track";
+  const fill = document.createElement("span");
+  fill.style.width = `${Math.max(0, Math.min(100, finding.mean * 100))}%`;
+  const tick = document.createElement("span");
+  tick.className = "tick";
+  track.append(fill, tick);
+  const score = document.createElement("span");
+  score.className = "score";
+  score.textContent = formatScore(finding.mean);
+  meter.append(track, score);
+  button.append(top, meter);
+  button.addEventListener("click", () => {
+    openLabel = open ? null : finding.label;
+    renderFindings();
+  });
+  item.append(button);
+  if (open) {
+    const votes = document.createElement("ul");
+    votes.className = "votes";
+    for (const vote of finding.votes) {
+      const row = document.createElement("li");
+      const voteName = document.createElement("span");
+      voteName.className = "vote-name";
+      voteName.textContent = readerName(vote.title);
+      const voteTrack = document.createElement("span");
+      voteTrack.className = "track";
+      const voteFill = document.createElement("span");
+      voteFill.className = "ok";
+      voteFill.style.width = `${Math.max(0, Math.min(100, vote.score * 100))}%`;
+      const voteTick = document.createElement("span");
+      voteTick.className = "tick";
+      voteTrack.append(voteFill, voteTick);
+      const voteScore = document.createElement("span");
+      voteScore.className = "flag";
+      voteScore.textContent = vote.score >= 0.5 ? "flagged" : "under";
+      row.append(voteName, voteTrack, voteScore);
+      votes.append(row);
+    }
+    item.append(votes);
+  }
+  list.append(item);
 }
 
 function renderFindings() {
@@ -328,69 +417,72 @@ function renderFindings() {
     empty.hidden = false;
     empty.textContent =
       ready === 0
-        ? "Loading the joint network into WebAssembly. The other seven follow."
-        : "Drop a film to score it. Networks still loading will join the vote when they are ready.";
+        ? "The first reader is loading. You can drop a film now."
+        : film
+          ? "Comparing the readers that are ready. The others will join as they finish."
+          : "Drop a film. Each reader votes only on findings it was trained to see.";
     return;
   }
   empty.hidden = true;
   findingsList.hidden = false;
   findingsList.replaceChildren();
-  for (const finding of findings) {
-    const item = document.createElement("li");
-    item.className = "row";
-    const open = openLabel === finding.label;
+
+  const standouts = findings.filter(cleared);
+  const splits = findings.filter(splitVote);
+  const lead = findings[0];
+  const showLeadAlone = standouts.length === 0 && splits.length === 0;
+  const featured = showLeadAlone ? [lead] : standouts;
+  const quiet = findings.filter(
+    (finding) => !cleared(finding) && !splitVote(finding) && !featured.includes(finding),
+  );
+
+  const summary = document.createElement("li");
+  summary.className = "summary";
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = cleared(lead) ? "Cleared the cutoff" : "Closest";
+  const headline = document.createElement("p");
+  headline.className = "headline";
+  headline.textContent = labelText(lead.label);
+  const detail = document.createElement("p");
+  detail.className = "detail";
+  detail.textContent = `${lead.over} of ${lead.votes.length} readers flagged it. Score ${formatScore(lead.mean)}.${
+    cleared(lead) ? "" : " That is under the usual cutoff."
+  }`;
+  summary.append(eyebrow, headline, detail);
+  findingsList.append(summary);
+
+  if (!showLeadAlone && standouts.length > 0) {
+    const heading = document.createElement("li");
+    heading.className = "group";
+    heading.textContent = "At or above the cutoff";
+    findingsList.append(heading);
+  }
+  for (const finding of featured) appendFinding(findingsList, finding);
+
+  if (splits.length > 0) {
+    const heading = document.createElement("li");
+    heading.className = "group";
+    heading.textContent = "Split vote";
+    findingsList.append(heading);
+    for (const finding of splits) appendFinding(findingsList, finding);
+  }
+
+  if (quiet.length > 0) {
+    const toggle = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.setAttribute("aria-expanded", open ? "true" : "false");
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = labelText(finding.label);
-    const track = document.createElement("span");
-    track.className = "track";
-    const fill = document.createElement("span");
-    fill.style.width = `${Math.max(0, Math.min(100, finding.mean * 100))}%`;
-    track.append(fill);
-    const score = document.createElement("span");
-    score.className = "score";
-    score.textContent = formatScore(finding.mean);
-    const frac = document.createElement("span");
-    frac.className = "frac";
-    frac.textContent = `${finding.over}/${finding.votes.length}`;
-    const chev = document.createElement("span");
-    chev.className = "chev";
-    chev.textContent = open ? "▾" : "▸";
-    button.append(name, track, score, frac, chev);
+    button.className = "quiet-toggle";
+    button.textContent = showQuiet ? "Hide quieter findings" : `Show ${quiet.length} quieter findings`;
     button.addEventListener("click", () => {
-      openLabel = open ? null : finding.label;
+      showQuiet = !showQuiet;
       renderFindings();
     });
-    item.append(button);
-    if (open) {
-      const votes = document.createElement("ul");
-      votes.className = "votes";
-      for (const vote of finding.votes) {
-        const row = document.createElement("li");
-        const voteName = document.createElement("span");
-        voteName.className = "vote-name";
-        voteName.textContent = vote.title;
-        const voteTrack = document.createElement("span");
-        voteTrack.className = "track";
-        const voteFill = document.createElement("span");
-        voteFill.style.width = `${Math.max(0, Math.min(100, vote.score * 100))}%`;
-        voteTrack.append(voteFill);
-        const voteScore = document.createElement("span");
-        voteScore.className = "score";
-        voteScore.textContent = formatScore(vote.score);
-        row.append(voteName, voteTrack, voteScore);
-        votes.append(row);
-      }
-      const note = document.createElement("li");
-      note.className = "note";
-      note.textContent = `${finding.over} of ${finding.votes.length} trained heads sit at or above their operating point.`;
-      votes.append(note);
-      item.append(votes);
+    toggle.append(button);
+    findingsList.append(toggle);
+    if (showQuiet) {
+      for (const finding of quiet) appendFinding(findingsList, finding);
     }
-    findingsList.append(item);
   }
 }
 
@@ -446,6 +538,7 @@ async function takeFile(file) {
     filename.textContent = file.name;
     findings = null;
     openLabel = null;
+    showQuiet = false;
     render();
     void score();
   } catch (error) {

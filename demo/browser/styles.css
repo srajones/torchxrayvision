@@ -9,6 +9,7 @@
   --amber: #e0a45a;
   --danger: #e07a64;
   --ok: #9bb583;
+  --ink: #1a140c;
   --sans: ui-sans-serif, system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -145,11 +146,13 @@ main {
 .filebar button {
   height: 2.75rem;
   flex: none;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 0.6rem;
-  background: var(--surface);
+  background: var(--amber);
+  color: var(--ink);
   padding: 0 1rem;
   font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .meta {
@@ -204,19 +207,26 @@ main {
 .row > button {
   display: flex;
   width: 100%;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
   border: 0;
   background: transparent;
   padding: 0.75rem 1rem;
   text-align: left;
 }
 
-.name { width: 10.5rem; flex: none; font-size: 0.875rem; }
-
-@media (min-width: 640px) {
-  .name { width: 13rem; }
+.row-top, .meter {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
 }
+
+.name { flex: 1; font-size: 0.875rem; }
+.agree, .score, .flag, .chev { flex: none; font-family: var(--mono); font-size: 0.75rem; }
+.chev { color: var(--muted); }
+.score { width: 2rem; text-align: right; color: var(--muted); }
+.flag { width: 3.5rem; text-align: right; }
 
 .track {
   position: relative;
@@ -227,30 +237,40 @@ main {
   background: var(--film);
 }
 
-.track > span {
+.track > span:first-child {
   position: absolute;
   inset: 0 auto 0 0;
   background: var(--amber);
 }
 
-.score, .frac {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  text-align: right;
+.track > span.ok { background: var(--ok); }
+
+.tick {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  background: var(--fg);
+  opacity: 0.4;
 }
 
-.score { width: 2.5rem; }
-.frac { display: none; width: 3rem; color: var(--muted); }
+.summary { padding: 1rem; border-bottom: 1px solid var(--line); }
+.summary .eyebrow { margin: 0; }
+.headline { margin: 0.25rem 0 0; font-size: 1.25rem; font-weight: 500; }
+.detail { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+.group { padding: 0.75rem 1rem 0; color: var(--muted); font-size: 0.75rem; }
 
-@media (min-width: 640px) {
-  .frac { display: inline; }
-}
-
-.chev {
-  flex: none;
+.quiet-toggle {
+  display: flex;
+  width: 100%;
+  height: 2.75rem;
+  align-items: center;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  padding: 0 1rem;
   color: var(--muted);
-  font-size: 0.75rem;
+  text-align: left;
+  font-size: 0.875rem;
 }
 
 .votes { list-style: none; margin: 0; padding: 0 1rem 1rem; }
@@ -264,7 +284,7 @@ main {
 
 .vote-name { width: 7rem; flex: none; color: var(--muted); }
 .votes .track { height: 0.25rem; }
-.votes .track > span { background: var(--ok); }
+.votes .track > span.tick { background: var(--fg); }
 .note { display: block; margin-top: 0.6rem; color: var(--muted); }
 
 .foot {

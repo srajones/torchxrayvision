@@ -63,7 +63,43 @@ let brainSession = null;
 let brainState = "wait";
 let brainScores = null;
 let brainBusy = false;
-let ort = null;
+const MODEL_CACHE = "film-bench-models-v1";
+let downloading = 0;
+
+async function loadModel(url) {
+  const absolute = new URL(url, window.location.href).href;
+  if ("caches" in globalThis) {
+    try {
+      const cache = await caches.open(MODEL_CACHE);
+      const saved = await cache.match(absolute);
+      if (saved) return saved.arrayBuffer();
+      downloading += 1;
+      renderStatus();
+      const response = await fetch(absolute);
+      if (!response.ok) throw new Error("Could not download a reader.");
+      try {
+        await cache.put(absolute, response.clone());
+      } catch {
+        // The session can still start from the bytes we already have.
+      }
+      const bytes = await response.arrayBuffer();
+      downloading = Math.max(0, downloading - 1);
+      return bytes;
+    } catch (error) {
+      downloading = Math.max(0, downloading - 1);
+      if (error instanceof Error && error.message === "Could not download a reader.") throw error;
+    }
+  }
+  downloading += 1;
+  renderStatus();
+  try {
+    const response = await fetch(absolute);
+    if (!response.ok) throw new Error("Could not download a reader.");
+    return response.arrayBuffer();
+  } finally {
+    downloading = Math.max(0, downloading - 1);
+  }
+}
 
 function showError(message) {
   if (!message) {
@@ -385,6 +421,10 @@ async function decodeFilm(file) {
 }
 
 function renderStatus() {
+  if (downloading > 0) {
+    status.textContent = "Downloading a reader. This happens once.";
+    return;
+  }
   if (study === "brain") {
     status.textContent = brainBusy
       ? "Reading the slice"
@@ -400,7 +440,13 @@ function renderStatus() {
   const ready = [...loadState.values()].filter((state) => state === "ready").length;
   const total = models.length;
   status.textContent =
-    total === 0 ? "Getting readers ready" : scoring ? "Comparing readers" : `${ready} of ${total} readers ready`;
+    total === 0
+      ? "Getting readers ready"
+      : scoring
+        ? "Comparing readers"
+        : ready < total
+          ? `Starting saved readers · ${ready} of ${total}`
+          : `${ready} of ${total} readers ready`;
 }
 
 function renderChips() {
@@ -771,7 +817,8 @@ async function loadOne(model) {
   loadState.set(model.id, "loading");
   render();
   const url = new URL(`./models/${model.file}`, window.location.href).href;
-  const session = await ort.InferenceSession.create(url, { executionProviders: ["wasm"] });
+  const bytes = await loadModel(url);
+  const session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
   sessions.set(model.id, session);
   specs.set(model.id, model);
   loadState.set(model.id, "ready");
@@ -785,7 +832,8 @@ async function ensureBrain() {
   render();
   try {
     const url = new URL("./models/brain-mri-slice.onnx", window.location.href).href;
-    brainSession = await ort.InferenceSession.create(url, { executionProviders: ["wasm"] });
+    const bytes = await loadModel(url);
+    brainSession = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
     brainState = "ready";
   } catch (error) {
     brainState = "error";

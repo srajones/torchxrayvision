@@ -9,3 +9,4 @@ build
 dist
 .python-version
 demo/browser/models/*.onnx
+demo/browser/vendor/

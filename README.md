@@ -25,6 +25,10 @@ Twitter: [@torchxrayvision](https://twitter.com/torchxrayvision)
 $ pip install torchxrayvision
 ```
 
+## Browser
+
+`python scripts/export_onnx.py --all` writes ONNX logits for the core classifiers (the 224 DenseNet checkpoints and ResNet-50 at 512) plus `demo/browser/models/registry.json`. Run them in the browser with ONNX Runtime WebAssembly. Apply sigmoid and `op_norm` outside the graph: 0.5 is the operating point, not a probability. See [demo/browser/README.md](demo/browser/README.md). Not for clinical use.
+
 ```python3
 import torchxrayvision as xrv
 import skimage, torch, torchvision
